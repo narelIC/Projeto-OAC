@@ -74,6 +74,7 @@ module riscvsingle(input  logic        clk, reset,
               ALUResult, WriteData, ReadData);
 endmodule
 
+//ALTERAÇÃO: como o jal é incondicional, o jal deve acontecer independente do "Branch and Zero"
 module controller(input  logic [6:0] op,
                   input  logic [2:0] funct3,
                   input  logic       funct7b5,
@@ -92,9 +93,10 @@ module controller(input  logic [6:0] op,
              ALUSrc, RegWrite, Jump, ImmSrc, ALUOp);
   aludec  ad(op[5], funct3, funct7b5, ALUOp, ALUControl);
 
-  assign PCSrc = Branch & Zero;
+  assign PCSrc = (Branch & Zero) | Jump; //AQUI
 endmodule
 
+//ALTERAÇÃO: adicionar a instrução Jal com o opcode ao banco de instru 
 module maindec(input  logic [6:0] op,
                output logic [1:0] ResultSrc,
                output logic       MemWrite,
@@ -106,7 +108,7 @@ module maindec(input  logic [6:0] op,
   logic [10:0] controls;
 
   assign {RegWrite, ImmSrc, ALUSrc, MemWrite,
-          ResultSrc, Branch, ALUOp} = controls;
+          ResultSrc, Branch, ALUOp, Jump} = controls; //AQUI
 
   always_comb
     case(op)
@@ -115,6 +117,7 @@ module maindec(input  logic [6:0] op,
       7'b0100011: controls = 11'b0_01_1_1_00_0_00_0; // sw
       7'b0110011: controls = 11'b1_xx_0_0_00_0_10_0; // R-type 
       7'b1100011: controls = 11'b0_10_0_0_00_1_01_0; // beq
+      7'b1101111: controls = 11'b1_11_x_0_10_0_xx_1; // jal //AQUI
       default:    controls = 11'bx_xx_x_x_xx_x_xx_x; // non-implemented instruction
     endcase
 endmodule
@@ -145,6 +148,7 @@ module aludec(input  logic       opb5,
     endcase
 endmodule
 
+//ALTERAÇÃO: adicionado mais uma entrada ao mux de resultado, para que Jal receba o valor de retorno PCPlus4
 module datapath(input  logic        clk, reset,
                 input  logic [1:0]  ResultSrc, 
                 input  logic        PCSrc, ALUSrc,
@@ -176,7 +180,7 @@ module datapath(input  logic        clk, reset,
   // ALU logic
   mux2 #(32)  srcbmux(WriteData, ImmExt, ALUSrc, SrcB);
   alu         alu(SrcA, SrcB, ALUControl, ALUResult, Zero);
-  mux3 #(32)  resultmux(ALUResult, ReadData, 32'b0, ResultSrc, Result);
+  mux4 #(32)  resultmux(ALUResult, ReadData, PCPlus4, ResultSrc, Result);//AQUI
 endmodule
 
 module regfile(input  logic        clk, 
@@ -213,7 +217,7 @@ module extend(input  logic [31:7] instr,
     case(immsrc) 
       2'b01:   immext = {{20{instr[31]}}, instr[31:25], instr[11:7]}; 
                // B-type (branches)
-      2'b11:   immext = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0}; 
+      2'b11:   immext = {{12{instr[31]}}, instr[19:12], instr[20], instr[30:21], 1'b0}; //J´type 20bit para o jal
       default: immext = 32'bx; // undefined
     endcase             
 endmodule
@@ -236,7 +240,8 @@ module mux2 #(parameter WIDTH = 8)
   assign y = s ? d1 : d0; 
 endmodule
 
-module mux3 #(parameter WIDTH = 8)
+//ALTERAÇÃO: ao invés de criar um módulo mux4, simplesmente reutilizei o mux3
+module mux4 #(parameter WIDTH = 8) //AQUI
              (input  logic [WIDTH-1:0] d0, d1, d2,
               input  logic [1:0]       s, 
               output logic [WIDTH-1:0] y);
